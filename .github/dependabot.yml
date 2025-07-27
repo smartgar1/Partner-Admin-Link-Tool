@@ -7,10 +7,6 @@ updates:
       day: "monday"
       time: "09:00"
     open-pull-requests-limit: 10
-    reviewers:
-      - "@lukemurraynz"
-    assignees:
-      - "@lukemurraynz"
     commit-message:
       prefix: "deps"
       prefix-development: "deps-dev"

@@ -1,0 +1,9 @@
+# Global code owners
+# These owners will be requested for review when someone opens a pull request
+* @lukemurraynz
+
+# Specific file patterns can be added here if needed
+# For example:
+# *.md @lukemurraynz
+# src/ @lukemurraynz
+# tests/ @lukemurraynz
