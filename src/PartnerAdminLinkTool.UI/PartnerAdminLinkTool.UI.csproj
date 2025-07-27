@@ -28,7 +28,6 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="9.0.7" />
     <PackageReference Include="Spectre.Console" Version="0.50.0" />
     <PackageReference Include="Azure.Identity" Version="1.14.2" />
-    <PackageReference Include="TextCopy" Version="6.2.1" />
   </ItemGroup>
 
   <ItemGroup>
