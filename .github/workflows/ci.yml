@@ -1,0 +1,168 @@
+name: Build, Test & Release
+
+permissions:
+  contents: write
+  actions: read
+
+on:
+  push:
+    branches: [ main, master, develop ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+        cache: true
+        
+    - name: Restore dependencies
+      run: dotnet restore PartnerAdminLinkTool.sln
+      
+    - name: Build solution
+      run: dotnet build PartnerAdminLinkTool.sln --no-restore --configuration Release
+      
+    - name: Run tests
+      run: dotnet test PartnerAdminLinkTool.sln --no-build --configuration Release --logger trx --results-directory "TestResults"
+      
+    - name: Upload test results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results
+        path: TestResults/
+        retention-days: 7
+
+  code-quality:
+    name: Code Quality Analysis
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+        cache: true
+        
+    - name: Restore dependencies
+      run: dotnet restore PartnerAdminLinkTool.sln
+      
+    - name: Build solution
+      run: dotnet build PartnerAdminLinkTool.sln --no-restore --configuration Release
+      
+    - name: Run code analysis
+      run: dotnet format --verify-no-changes --verbosity diagnostic PartnerAdminLinkTool.sln
+      continue-on-error: true
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [build-and-test, code-quality]
+    if: startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      matrix:
+        runtime: [win-x64, linux-x64, osx-x64]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+        cache: true
+        
+    - name: Extract version from tag
+      id: get_version
+      run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      
+    - name: Restore dependencies
+      run: dotnet restore PartnerAdminLinkTool.sln
+      
+    - name: Publish self-contained executable
+      run: |
+        dotnet publish src/PartnerAdminLinkTool.UI/PartnerAdminLinkTool.UI.csproj \
+          --configuration Release \
+          --runtime ${{ matrix.runtime }} \
+          --self-contained true \
+          --output ./publish/${{ matrix.runtime }} \
+          -p:PublishSingleFile=true \
+          -p:IncludeNativeLibrariesForSelfExtract=true \
+          -p:PublishTrimmed=false
+          
+    - name: Create archive
+      run: |
+        cd ./publish/${{ matrix.runtime }}
+        if [[ "${{ matrix.runtime }}" == win-* ]]; then
+          zip -r ../../PartnerAdminLinkTool-${{ steps.get_version.outputs.VERSION }}-${{ matrix.runtime }}.zip .
+        else
+          tar -czf ../../PartnerAdminLinkTool-${{ steps.get_version.outputs.VERSION }}-${{ matrix.runtime }}.tar.gz .
+        fi
+        
+    - name: Upload release artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-${{ matrix.runtime }}
+        path: |
+          PartnerAdminLinkTool-${{ steps.get_version.outputs.VERSION }}-${{ matrix.runtime }}.*
+        retention-days: 1
+
+  create-github-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Extract version from tag
+      id: get_version
+      run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+      
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: release-*
+        merge-multiple: true
+        
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ github.ref_name }}
+        name: Partner Admin Link Tool v${{ steps.get_version.outputs.VERSION }}
+        body: |
+          ## Partner Admin Link Tool v${{ steps.get_version.outputs.VERSION }}
+          
+          ### Downloads
+          - **Windows**: `PartnerAdminLinkTool-${{ steps.get_version.outputs.VERSION }}-win-x64.zip`
+          - **Linux**: `PartnerAdminLinkTool-${{ steps.get_version.outputs.VERSION }}-linux-x64.tar.gz`
+          - **macOS**: `PartnerAdminLinkTool-${{ steps.get_version.outputs.VERSION }}-osx-x64.tar.gz`
+          
+          ### Installation
+          1. Download the appropriate file for your platform
+          2. Extract the archive
+          3. Run the executable
+          
+          ### Changes
+          See the commit history for detailed changes in this release.
+        files: |
+          PartnerAdminLinkTool-${{ steps.get_version.outputs.VERSION }}-*.zip
+          PartnerAdminLinkTool-${{ steps.get_version.outputs.VERSION }}-*.tar.gz
+        draft: false
+        prerelease: false

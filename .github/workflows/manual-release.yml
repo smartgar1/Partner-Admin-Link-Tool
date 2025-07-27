@@ -1,0 +1,196 @@
+name: Manual Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g., v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+      prerelease:
+        description: 'Mark as pre-release'
+        type: boolean
+        required: false
+        default: false
+
+env:
+  DOTNET_VERSION: '8.0.x'
+  PROJECT_PATH: 'src/PartnerAdminLinkTool.UI/PartnerAdminLinkTool.UI.csproj'
+
+jobs:
+  manual-release:
+    name: Manual Release Build
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: 
+          - win-x64
+          - win-x86
+          - win-arm64
+          - linux-x64
+          - linux-arm64
+          - osx-x64
+          - osx-arm64
+        include:
+          - target: win-x64
+            artifact_name: PartnerAdminLinkTool-win-x64
+            asset_name: PartnerAdminLinkTool-win-x64.zip
+          - target: win-x86
+            artifact_name: PartnerAdminLinkTool-win-x86
+            asset_name: PartnerAdminLinkTool-win-x86.zip
+          - target: win-arm64
+            artifact_name: PartnerAdminLinkTool-win-arm64
+            asset_name: PartnerAdminLinkTool-win-arm64.zip
+          - target: linux-x64
+            artifact_name: PartnerAdminLinkTool-linux-x64
+            asset_name: PartnerAdminLinkTool-linux-x64.tar.gz
+          - target: linux-arm64
+            artifact_name: PartnerAdminLinkTool-linux-arm64
+            asset_name: PartnerAdminLinkTool-linux-arm64.tar.gz
+          - target: osx-x64
+            artifact_name: PartnerAdminLinkTool-osx-x64
+            asset_name: PartnerAdminLinkTool-osx-x64.tar.gz
+          - target: osx-arm64
+            artifact_name: PartnerAdminLinkTool-osx-arm64
+            asset_name: PartnerAdminLinkTool-osx-arm64.tar.gz
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: ${{ env.DOTNET_VERSION }}
+        cache: true
+        
+    - name: Restore dependencies
+      run: dotnet restore PartnerAdminLinkTool.sln
+      
+    - name: Run tests
+      run: dotnet test PartnerAdminLinkTool.sln --configuration Release --logger trx
+      
+    - name: Publish application
+      shell: bash
+      run: |
+        dotnet publish ${{ env.PROJECT_PATH }} \
+          --configuration Release \
+          --runtime ${{ matrix.target }} \
+          --self-contained true \
+          --output ./publish/${{ matrix.artifact_name }} \
+          /p:Version=${{ github.event.inputs.version }} \
+          /p:AssemblyVersion=${{ github.event.inputs.version }} \
+          /p:FileVersion=${{ github.event.inputs.version }} \
+          /p:PublishSingleFile=true \
+          /p:PublishReadyToRun=false \
+          /p:PublishTrimmed=false \
+          /p:IncludeNativeLibrariesForSelfExtract=true
+          
+    - name: Create release package
+      shell: bash
+      run: |
+        cd ./publish
+        
+        # Copy additional files
+        cp ../README.md ${{ matrix.artifact_name }}/
+        cp ../docs/APP_REGISTRATION_SETUP.md ${{ matrix.artifact_name }}/
+        
+        # Create archive based on platform
+        if [[ "${{ matrix.target }}" == win-* ]]; then
+          # For Windows, create a zip file
+          7z a -tzip ../${{ matrix.asset_name }} ./${{ matrix.artifact_name }}/*
+        else
+          # For Linux/macOS, create a tar.gz file
+          tar -czf ../${{ matrix.asset_name }} ${{ matrix.artifact_name }}
+        fi
+        
+        cd ..
+        
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact_name }}
+        path: ${{ matrix.asset_name }}
+        retention-days: 30
+
+  create-manual-release:
+    name: Create Manual Release
+    needs: manual-release
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: ./artifacts
+        
+    - name: Move artifacts to release directory
+      shell: bash
+      run: |
+        mkdir -p ./release
+        find ./artifacts -name "*.zip" -o -name "*.tar.gz" | xargs -I {} cp {} ./release/
+        ls -la ./release/
+        
+    - name: Generate release notes
+      id: release_notes
+      shell: bash
+      run: |
+        cat << 'EOF' > release_notes.md
+        ## 🚀 Partner Admin Link (PAL) Tool ${{ github.event.inputs.version }}
+        
+        > **Manual Release** - Created manually via GitHub Actions
+        
+        ### 📦 Downloads
+        
+        **Windows:**
+        - `PartnerAdminLinkTool-win-x64.zip` - Windows 64-bit (x64)
+        - `PartnerAdminLinkTool-win-x86.zip` - Windows 32-bit (x86)
+        - `PartnerAdminLinkTool-win-arm64.zip` - Windows ARM64
+        
+        **Linux:**
+        - `PartnerAdminLinkTool-linux-x64.tar.gz` - Linux 64-bit (x64)
+        - `PartnerAdminLinkTool-linux-arm64.tar.gz` - Linux ARM64
+        
+        **macOS:**
+        - `PartnerAdminLinkTool-osx-x64.tar.gz` - macOS Intel (x64)
+        - `PartnerAdminLinkTool-osx-arm64.tar.gz` - macOS Apple Silicon (ARM64)
+        
+        ### 🎯 What's Included
+        
+        Each download contains:
+        - The Partner Admin Link Tool executable
+        - README.md with usage instructions
+        - APP_REGISTRATION_SETUP.md with Azure App Registration setup guide
+        
+        ### 🔧 Installation
+        
+        1. Download the appropriate package for your platform
+        2. Extract the archive
+        3. Follow the setup instructions in APP_REGISTRATION_SETUP.md
+        4. Run the executable to start linking your Partner ID
+        
+        ### ⚡ Requirements
+        
+        - No .NET runtime installation required (self-contained)
+        - Internet connectivity
+        - Azure subscription and appropriate permissions
+        - Microsoft AI Cloud Partner Program Partner ID
+        EOF
+        
+        echo "release_notes_file=release_notes.md" >> $GITHUB_OUTPUT
+        
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ github.event.inputs.version }}
+        name: Partner Admin Link Tool ${{ github.event.inputs.version }}
+        body_path: ${{ steps.release_notes.outputs.release_notes_file }}
+        files: ./release/*
+        draft: false
+        prerelease: ${{ github.event.inputs.prerelease }}
+        make_latest: ${{ !github.event.inputs.prerelease }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
