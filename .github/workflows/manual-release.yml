@@ -42,7 +42,6 @@ jobs:
       uses: actions/setup-dotnet@v4
       with:
         dotnet-version: ${{ env.DOTNET_VERSION }}
-        cache: true
         
     - name: Restore dependencies
       run: dotnet restore PartnerAdminLinkTool.sln
@@ -130,7 +129,7 @@ jobs:
         Each download contains:
         - The Partner Admin Link Tool executable (.exe)
         - README.md with usage instructions
-                
+
         ### 🔧 Installation
         
         1. Download the appropriate Windows package for your platform
