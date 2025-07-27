@@ -11,6 +11,8 @@ A modern .NET application that helps Microsoft partners link their Partner ID (A
 - ✅ **Provide insights** into your partner engagement effectiveness
 - ✅ **Enable partner incentives** based on customer growth
 
+![PALTool](docs/PALTool.jpg)
+
 ## 🚀 Features
 
 - **🔐 Multiple Authentication Methods**: Support for both Interactive and Device Code Flow authentication
