@@ -104,9 +104,6 @@ This tool is now **perfect** for organizations with strict Microsoft Graph polic
 - Azure Management API access (standard for Azure administration)
 - Basic authentication permissions (which most users already have)
 
-````
-```
-
 ## 📖 How to Use
 
 ### 1. Authentication
@@ -130,7 +127,7 @@ The tool automatically discovers all Microsoft Entra tenants you have access to,
 
 ### 3. Link Partner ID
 
-Enter your Microsoft AI Cloud Partner Program (Associated PartnerID) and the tool will:
+Enter your Microsoft AI Cloud Partner Program (Associated Partner ID) and the tool will:
 - Validate the ID format
 - Link it to all accessible tenants
 - Show real-time progress
