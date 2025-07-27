@@ -4,7 +4,7 @@ A modern .NET application that helps Microsoft partners link their Partner ID (A
 
 ## 🎯 What This Tool Does
 
-**Partner Admin Link (PAL)** enables Microsoft to identify and recognize partners who drive Azure customer success. By linking your Microsoft AI Cloud Partner Program (Associated PartnerID) to customer tenants, Microsoft can:
+**[Partner Admin Link (PAL)](https://learn.microsoft.com/azure/cost-management-billing/manage/link-partner-id?WT.mc_id=AZ-MVP-5004796)** enables Microsoft to identify and recognize partners who drive Azure customer success. By linking your [Microsoft AI Cloud Partner Program](https://partner.microsoft.com/en-nz/explore?WT.mc_id=AZ-MVP-5004796) (Associated PartnerID) to customer tenants, Microsoft can:
 
 - ✅ **Attribute revenue** from your customers' Azure consumption to your organization
 - ✅ **Recognize your impact** on customer success and business outcomes  
@@ -13,6 +13,9 @@ A modern .NET application that helps Microsoft partners link their Partner ID (A
 
 ![PALTool](docs/PALTool.jpg)
 
+![PALTool](docs/PALTool_PAL.jpg)
+
+
 ## 🚀 Features
 
 - **🔐 Multiple Authentication Methods**: Support for both Interactive and Device Code Flow authentication
@@ -20,8 +23,6 @@ A modern .NET application that helps Microsoft partners link their Partner ID (A
 - **🔗 Bulk Partner ID Linking**: Link your Partner ID to multiple tenants at once
 - **📊 Progress Tracking**: Real-time progress feedback during bulk operations
 - **🎨 Modern Console UI**: Beautiful text-based interface using Spectre.Console
-- **📱 Cross-Platform**: Runs on Windows, macOS, and Linux
-- **☁️ GitHub Codespaces Ready**: Full .devcontainer support for cloud development
 
 ## 🏗️ Architecture
 
@@ -106,14 +107,6 @@ This tool is now **perfect** for organizations with strict Microsoft Graph polic
 ````
 ```
 
-### Option 2: Use GitHub Codespaces
-
-1. Click the **"Code"** button on this repository
-2. Select **"Codespaces"** tab
-3. Click **"Create codespace on main"**
-4. Wait for the environment to set up automatically
-5. Run `dotnet run` in the terminal
-
 ## 📖 How to Use
 
 ### 1. Authentication
@@ -150,8 +143,6 @@ Enter your Microsoft AI Cloud Partner Program (Associated PartnerID) and the too
 Visit the [Releases page](../../releases) to download pre-built executables for your platform:
 
 - **Windows**: `PartnerAdminLinkTool-win-x64.zip` (64-bit), `PartnerAdminLinkTool-win-x86.zip` (32-bit), `PartnerAdminLinkTool-win-arm64.zip` (ARM64)
-- **Linux**: `PartnerAdminLinkTool-linux-x64.tar.gz` (64-bit), `PartnerAdminLinkTool-linux-arm64.tar.gz` (ARM64)  
-- **macOS**: `PartnerAdminLinkTool-osx-x64.tar.gz` (Intel), `PartnerAdminLinkTool-osx-arm64.tar.gz` (Apple Silicon)
 
 **Advantages of pre-built releases:**
 - ✅ No .NET SDK installation required
@@ -179,8 +170,8 @@ This repository uses **GitHub Actions** for automated building and releasing:
 
 ```bash
 # Create and push a version tag
-git tag v1.0.0
-git push origin v1.0.0
+git tag 1.0.0
+git push origin 1.0.0
 
 # Or create a manual release via GitHub Actions UI
 ```
@@ -258,15 +249,15 @@ This project follows Microsoft's coding conventions and includes extensive docum
 
 ### For .NET Beginners
 
-- [Microsoft Learn: .NET Fundamentals](https://docs.microsoft.com/learn/paths/dotnet-fundamentals/)
-- [C# Programming Guide](https://docs.microsoft.com/dotnet/csharp/programming-guide/)
-- [Dependency Injection in .NET](https://docs.microsoft.com/dotnet/core/extensions/dependency-injection)
+- [Microsoft Learn: .NET Fundamentals](https://learn.microsoft.com/dotnet/fundamentals/?WT.mc_id=AZ-MVP-5004796)
+- [C# Programming Guide](https://learn.microsoft.com/dotnet/csharp/programming-guide/concepts/?WT.mc_id=AZ-MVP-5004796)
+- [Dependency Injection in .NET](https://learn.microsoft.com/dotnet/core/extensions/dependency-injection?WT.mc_id=AZ-MVP-5004796)
 
 ### For Microsoft Partners
 
-- [Partner Admin Link Documentation](https://docs.microsoft.com/partner-center/link-partner-id-for-azure-performance-pal-dpor)
-- [Microsoft AI Cloud Partner Program](https://partner.microsoft.com/)
-- [Azure Partner Recognition](https://docs.microsoft.com/azure/cost-management-billing/manage/link-partner-id)
+- [Partner Admin Link Documentation](https://learn.microsoft.com/partner-center/membership/link-partner-id-for-azure-performance-pal-dpor?WT.mc_id=AZ-MVP-5004796)
+- [Microsoft AI Cloud Partner Program](https://partner.microsoft.com/?WT.mc_id=AZ-MVP-5004796)
+- [Azure Partner Recognition](https://learn.microsoft.com/azure/cost-management-billing/manage/link-partner-id?WT.mc_id=AZ-MVP-5004796)
 
 ## 🤝 Contributing
 
