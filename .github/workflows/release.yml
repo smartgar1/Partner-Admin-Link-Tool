@@ -20,40 +20,15 @@ jobs:
         target: 
           - win-x64
           - win-x86
-          - win-arm64
-          - linux-x64
-          - linux-arm64
-          - osx-x64
-          - osx-arm64
         include:
           - target: win-x64
             os: windows-latest
             artifact_name: PartnerAdminLinkTool-win-x64
-            asset_name: PartnerAdminLinkTool-win-x64.zip
+            asset_name: PartnerAdminLinkTool-win-x64.exe
           - target: win-x86
             os: windows-latest
             artifact_name: PartnerAdminLinkTool-win-x86
-            asset_name: PartnerAdminLinkTool-win-x86.zip
-          - target: win-arm64
-            os: windows-latest
-            artifact_name: PartnerAdminLinkTool-win-arm64
-            asset_name: PartnerAdminLinkTool-win-arm64.zip
-          - target: linux-x64
-            os: ubuntu-latest
-            artifact_name: PartnerAdminLinkTool-linux-x64
-            asset_name: PartnerAdminLinkTool-linux-x64.tar.gz
-          - target: linux-arm64
-            os: ubuntu-latest
-            artifact_name: PartnerAdminLinkTool-linux-arm64
-            asset_name: PartnerAdminLinkTool-linux-arm64.tar.gz
-          - target: osx-x64
-            os: macos-latest
-            artifact_name: PartnerAdminLinkTool-osx-x64
-            asset_name: PartnerAdminLinkTool-osx-x64.tar.gz
-          - target: osx-arm64
-            os: macos-latest
-            artifact_name: PartnerAdminLinkTool-osx-arm64
-            asset_name: PartnerAdminLinkTool-osx-arm64.tar.gz
+            asset_name: PartnerAdminLinkTool-win-x86.exe
     
     steps:
     - name: Checkout code
@@ -92,28 +67,26 @@ jobs:
           /p:PublishSingleFile=true \
           /p:PublishReadyToRun=false \
           /p:PublishTrimmed=false \
-          /p:IncludeNativeLibrariesForSelfExtract=true
+          /p:IncludeNativeLibrariesForSelfExtract=true \
+          /p:UseAppHost=true
+          
+    - name: Verify published files
+      shell: bash
+      run: |
+        echo "Files in publish directory for ${{ matrix.target }}:"
+        ls -la ./publish/${{ matrix.artifact_name }}/
+        echo "Executable files:"
+        find ./publish/${{ matrix.artifact_name }}/ -type f -executable -o -name "*.exe" | head -10
           
     - name: Create release package
       shell: bash
       run: |
-        cd ./publish
+        # Copy the executable directly with the target-specific name
+        cp ./publish/${{ matrix.artifact_name }}/PartnerAdminLinkTool.UI.exe ./${{ matrix.asset_name }}
         
-        # Copy additional files
-        cp ../README.md ${{ matrix.artifact_name }}/
-        cp ../docs/APP_REGISTRATION_SETUP.md ${{ matrix.artifact_name }}/
-        
-        # Create archive based on platform
-        if [[ "${{ matrix.target }}" == win-* ]]; then
-          # For Windows, create a zip file
-          7z a -tzip ../${{ matrix.asset_name }} ./${{ matrix.artifact_name }}/*
-        else
-          # For Linux/macOS, create a tar.gz file
-          tar -czf ../${{ matrix.asset_name }} ${{ matrix.artifact_name }}
-        fi
-        
-        cd ..
-        ls -la ${{ matrix.asset_name }}
+        # Verify the executable was created
+        ls -la ./${{ matrix.asset_name }}
+        file ./${{ matrix.asset_name }}
         
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
@@ -141,7 +114,7 @@ jobs:
       shell: bash
       run: |
         mkdir -p ./release
-        find ./artifacts -name "*.zip" -o -name "*.tar.gz" | xargs -I {} cp {} ./release/
+        find ./artifacts -name "*.exe" | xargs -I {} cp {} ./release/
         ls -la ./release/
         
     - name: Get version from tag
@@ -155,37 +128,34 @@ jobs:
         cat << 'EOF' > release_notes.md
         ## 🚀 Partner Admin Link (PAL) Tool ${{ steps.get_version.outputs.version }}
         
-        ### 📦 Downloads
+        ### 📦 Downloads (Windows Executables)
         
         **Windows:**
-        - `PartnerAdminLinkTool-win-x64.zip` - Windows 64-bit (x64)
-        - `PartnerAdminLinkTool-win-x86.zip` - Windows 32-bit (x86)
-        - `PartnerAdminLinkTool-win-arm64.zip` - Windows ARM64
-        
-        **Linux:**
-        - `PartnerAdminLinkTool-linux-x64.tar.gz` - Linux 64-bit (x64)
-        - `PartnerAdminLinkTool-linux-arm64.tar.gz` - Linux ARM64
-        
-        **macOS:**
-        - `PartnerAdminLinkTool-osx-x64.tar.gz` - macOS Intel (x64)
-        - `PartnerAdminLinkTool-osx-arm64.tar.gz` - macOS Apple Silicon (ARM64)
+        - `PartnerAdminLinkTool-win-x64.exe` - Windows 64-bit (x64) - Ready to run executable
+        - `PartnerAdminLinkTool-win-x86.exe` - Windows 32-bit (x86) - Ready to run executable
         
         ### 🎯 What's Included
         
-        Each download contains:
-        - The Partner Admin Link Tool executable
-        - README.md with usage instructions
-        - APP_REGISTRATION_SETUP.md with Azure App Registration setup guide
+        Each download is a standalone executable file:
+        - Self-contained Partner Admin Link Tool executable
+        - No additional files or extraction required
+        - Ready to run immediately after download
         
         ### 🔧 Installation
         
-        1. Download the appropriate package for your platform
-        2. Extract the archive
-        3. Follow the setup instructions in APP_REGISTRATION_SETUP.md
-        4. Run the executable to start linking your Partner ID
+        1. Download the appropriate Windows executable for your platform
+        2. No extraction needed - it's a ready-to-run .exe file
+        3. Optionally, download the documentation files separately from the repository
+        4. Run the executable directly to start linking your Partner ID
+        
+        ### 📚 Documentation
+        
+        For setup instructions and documentation:
+        - [README.md](https://github.com/${{ github.repository }}/blob/main/README.md)
         
         ### ⚡ Requirements
         
+        - Windows operating system (x64 or x86)
         - No .NET runtime installation required (self-contained)
         - Internet connectivity
         - Azure subscription and appropriate permissions

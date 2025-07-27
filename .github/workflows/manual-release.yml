@@ -26,11 +26,6 @@ jobs:
         target: 
           - win-x64
           - win-x86
-          - win-arm64
-          - linux-x64
-          - linux-arm64
-          - osx-x64
-          - osx-arm64
         include:
           - target: win-x64
             artifact_name: PartnerAdminLinkTool-win-x64
@@ -38,21 +33,6 @@ jobs:
           - target: win-x86
             artifact_name: PartnerAdminLinkTool-win-x86
             asset_name: PartnerAdminLinkTool-win-x86.zip
-          - target: win-arm64
-            artifact_name: PartnerAdminLinkTool-win-arm64
-            asset_name: PartnerAdminLinkTool-win-arm64.zip
-          - target: linux-x64
-            artifact_name: PartnerAdminLinkTool-linux-x64
-            asset_name: PartnerAdminLinkTool-linux-x64.tar.gz
-          - target: linux-arm64
-            artifact_name: PartnerAdminLinkTool-linux-arm64
-            asset_name: PartnerAdminLinkTool-linux-arm64.tar.gz
-          - target: osx-x64
-            artifact_name: PartnerAdminLinkTool-osx-x64
-            asset_name: PartnerAdminLinkTool-osx-x64.tar.gz
-          - target: osx-arm64
-            artifact_name: PartnerAdminLinkTool-osx-arm64
-            asset_name: PartnerAdminLinkTool-osx-arm64.tar.gz
     
     steps:
     - name: Checkout code
@@ -84,7 +64,8 @@ jobs:
           /p:PublishSingleFile=true \
           /p:PublishReadyToRun=false \
           /p:PublishTrimmed=false \
-          /p:IncludeNativeLibrariesForSelfExtract=true
+          /p:IncludeNativeLibrariesForSelfExtract=true \
+          /p:UseAppHost=true
           
     - name: Create release package
       shell: bash
@@ -95,16 +76,11 @@ jobs:
         cp ../README.md ${{ matrix.artifact_name }}/
         cp ../docs/APP_REGISTRATION_SETUP.md ${{ matrix.artifact_name }}/
         
-        # Create archive based on platform
-        if [[ "${{ matrix.target }}" == win-* ]]; then
-          # For Windows, create a zip file
-          7z a -tzip ../${{ matrix.asset_name }} ./${{ matrix.artifact_name }}/*
-        else
-          # For Linux/macOS, create a tar.gz file
-          tar -czf ../${{ matrix.asset_name }} ${{ matrix.artifact_name }}
-        fi
+        # Create Windows zip file
+        7z a -tzip ../${{ matrix.asset_name }} ./${{ matrix.artifact_name }}/*
         
         cd ..
+        ls -la ${{ matrix.asset_name }}
         
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
@@ -131,7 +107,7 @@ jobs:
       shell: bash
       run: |
         mkdir -p ./release
-        find ./artifacts -name "*.zip" -o -name "*.tar.gz" | xargs -I {} cp {} ./release/
+        find ./artifacts -name "*.zip" | xargs -I {} cp {} ./release/
         ls -la ./release/
         
     - name: Generate release notes
@@ -143,37 +119,28 @@ jobs:
         
         > **Manual Release** - Created manually via GitHub Actions
         
-        ### 📦 Downloads
+        ### 📦 Downloads (Windows Only)
         
         **Windows:**
         - `PartnerAdminLinkTool-win-x64.zip` - Windows 64-bit (x64)
         - `PartnerAdminLinkTool-win-x86.zip` - Windows 32-bit (x86)
-        - `PartnerAdminLinkTool-win-arm64.zip` - Windows ARM64
-        
-        **Linux:**
-        - `PartnerAdminLinkTool-linux-x64.tar.gz` - Linux 64-bit (x64)
-        - `PartnerAdminLinkTool-linux-arm64.tar.gz` - Linux ARM64
-        
-        **macOS:**
-        - `PartnerAdminLinkTool-osx-x64.tar.gz` - macOS Intel (x64)
-        - `PartnerAdminLinkTool-osx-arm64.tar.gz` - macOS Apple Silicon (ARM64)
         
         ### 🎯 What's Included
         
         Each download contains:
-        - The Partner Admin Link Tool executable
+        - The Partner Admin Link Tool executable (.exe)
         - README.md with usage instructions
-        - APP_REGISTRATION_SETUP.md with Azure App Registration setup guide
-        
+                
         ### 🔧 Installation
         
-        1. Download the appropriate package for your platform
-        2. Extract the archive
+        1. Download the appropriate Windows package for your platform
+        2. Extract the zip archive
         3. Follow the setup instructions in APP_REGISTRATION_SETUP.md
-        4. Run the executable to start linking your Partner ID
+        4. Run the PartnerAdminLinkTool.UI.exe to start linking your Partner ID
         
         ### ⚡ Requirements
         
+        - Windows operating system
         - No .NET runtime installation required (self-contained)
         - Internet connectivity
         - Azure subscription and appropriate permissions
