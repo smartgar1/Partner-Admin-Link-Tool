@@ -44,7 +44,10 @@ jobs:
       shell: bash
       run: |
         if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-          echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          # Remove the 'v' prefix from the tag for .NET version compatibility
+          VERSION="${GITHUB_REF#refs/tags/}"
+          VERSION="${VERSION#v}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
         else
           echo "version=dev-${GITHUB_SHA::8}" >> $GITHUB_OUTPUT
         fi
@@ -118,7 +121,11 @@ jobs:
         
     - name: Get version from tag
       id: get_version
-      run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      run: |
+        # Remove the 'v' prefix from the tag for .NET version compatibility
+        VERSION="${GITHUB_REF#refs/tags/}"
+        VERSION="${VERSION#v}"
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
       
     - name: Generate release notes
       id: release_notes
