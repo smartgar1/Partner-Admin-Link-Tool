@@ -102,8 +102,30 @@ namespace PartnerAdminLinkTool.Core.Services
                     }
                     else if (message.Contains("AADSTS50158") || errorCode == "basic_action")
                     {
-                        _logger.LogWarning("External security challenge not satisfied for tenant {TenantId}. User must complete additional authentication.", tenantId);
-                        return await Task.FromResult(TokenAcquisitionResult.Failure("basic_action", $"External security challenge not satisfied for tenant {tenantId}. User must complete additional authentication."));
+                        if (allowInteractiveAuth)
+                        {
+                            _logger.LogWarning("External security challenge not satisfied for tenant {TenantId}. Attempting interactive authentication.", tenantId);
+                            // Automatically attempt interactive authentication for external security challenge
+                            try
+                            {
+                                var interactiveResult = await _msalClient.AcquireTokenInteractive(_azureScopes)
+                                    .WithTenantId(tenantId)
+                                    .WithPrompt(Prompt.SelectAccount)
+                                    .ExecuteAsync();
+                                _logger.LogInformation("Interactive authentication successful for external security challenge on tenant {TenantId}", tenantId);
+                                return await Task.FromResult(TokenAcquisitionResult.Success(interactiveResult.AccessToken));
+                            }
+                            catch (Exception interactiveEx)
+                            {
+                                _logger.LogError(interactiveEx, "Interactive authentication failed for external security challenge on tenant {TenantId}", tenantId);
+                                return await Task.FromResult(TokenAcquisitionResult.Failure("basic_action", $"External security challenge not satisfied for tenant {tenantId}. Interactive authentication failed: {interactiveEx.Message}"));
+                            }
+                        }
+                        else
+                        {
+                            _logger.LogDebug("External security challenge for tenant {TenantId}. Interactive authentication disabled - returning failure for user handling.", tenantId);
+                            return await Task.FromResult(TokenAcquisitionResult.Failure("basic_action", $"External security challenge not satisfied for tenant {tenantId}. User must complete additional authentication."));
+                        }
                     }
                     else
                     {

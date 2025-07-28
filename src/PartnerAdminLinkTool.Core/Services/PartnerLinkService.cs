@@ -31,7 +31,7 @@ public class PartnerLinkService : IPartnerLinkService
     /// <summary>
     /// Link a Partner ID to a specific tenant
     /// </summary>
-    public async Task<PartnerLinkResult> LinkPartnerIdAsync(string partnerId, Tenant tenant)
+    public async Task<PartnerLinkResult> LinkPartnerIdAsync(string partnerId, Tenant tenant, bool forceOverwrite = false)
     {
         try
         {
@@ -63,9 +63,33 @@ public class PartnerLinkService : IPartnerLinkService
                 }
                 else
                 {
-                    _logger.LogWarning("Tenant {TenantId} already linked to a different Partner ID: {ExistingPartnerId}", tenant.Id, existingPartnerId);
-                    tenant.CurrentPartnerLink = existingPartnerId;
-                    return PartnerLinkResult.Failure(tenant, partnerId, "Tenant already linked to a different Partner ID.", $"Existing Partner ID: {existingPartnerId}");
+                    if (!forceOverwrite)
+                    {
+                        _logger.LogWarning("Tenant {TenantId} already linked to a different Partner ID: {ExistingPartnerId}", tenant.Id, existingPartnerId);
+                        tenant.CurrentPartnerLink = existingPartnerId;
+                        return PartnerLinkResult.Failure(tenant, partnerId, "Tenant already linked to a different Partner ID.", $"Existing Partner ID: {existingPartnerId}. Use force overwrite option to replace it.");
+                    }
+                    else
+                    {
+                        _logger.LogInformation("Force overwrite enabled - will replace existing Partner ID {ExistingPartnerId} with {NewPartnerId} for tenant {TenantId}", 
+                            existingPartnerId, partnerId, tenant.Id);
+                        
+                        // First unlink the existing partner ID
+                        var unlinkResult = await UnlinkPartnerIdAsync(tenant);
+                        if (!unlinkResult.IsSuccess)
+                        {
+                            _logger.LogError("Failed to unlink existing Partner ID {ExistingPartnerId} from tenant {TenantId}: {Error}", 
+                                existingPartnerId, tenant.Id, unlinkResult.ErrorMessage);
+                            return PartnerLinkResult.Failure(tenant, partnerId, "Failed to unlink existing Partner ID", 
+                                $"Cannot overwrite existing Partner ID {existingPartnerId}. Unlink error: {unlinkResult.ErrorMessage}");
+                        }
+                        
+                        _logger.LogInformation("Successfully unlinked existing Partner ID {ExistingPartnerId} from tenant {TenantId}", 
+                            existingPartnerId, tenant.Id);
+                        
+                        // Small delay to ensure the unlink operation is fully processed
+                        await Task.Delay(2000);
+                    }
                 }
             }
 
@@ -133,7 +157,8 @@ public class PartnerLinkService : IPartnerLinkService
     public async Task<List<PartnerLinkResult>> LinkPartnerIdToMultipleTenantsAsync(
         string partnerId, 
         List<Tenant> tenants, 
-        IProgress<(int completed, int total, Tenant currentTenant)>? progressCallback = null)
+        IProgress<(int completed, int total, Tenant currentTenant)>? progressCallback = null,
+        bool forceOverwrite = false)
     {
         var results = new List<PartnerLinkResult>();
         
@@ -147,7 +172,7 @@ public class PartnerLinkService : IPartnerLinkService
             progressCallback?.Report((i, tenants.Count, tenant));
             
             // Link to this tenant
-            var result = await LinkPartnerIdAsync(partnerId, tenant);
+            var result = await LinkPartnerIdAsync(partnerId, tenant, forceOverwrite);
             results.Add(result);
             
             // Small delay to avoid overwhelming the API
@@ -180,16 +205,19 @@ public class PartnerLinkService : IPartnerLinkService
                     "User not authenticated", "Authentication is required to unlink Partner ID");
             }
 
-            // Get Azure Management access token
-            var accessToken = await _authenticationService.GetAzureManagementAccessTokenAsync();
-            if (string.IsNullOrEmpty(accessToken))
+            // Get Azure Management access token (with actionable error info)
+            var tokenResult = await _authenticationService.GetAzureManagementAccessTokenAsync(tenant.Id);
+            if (!tokenResult.IsSuccess)
             {
-                return PartnerLinkResult.Failure(tenant, "", 
-                    "No Azure Management access token", "Unable to obtain access token for Azure Management API");
+                // Surface actionable error to user
+                var details = tokenResult.ActionUrl != null
+                    ? $"{tokenResult.ErrorMessage}\nAction required: {tokenResult.ActionUrl}"
+                    : tokenResult.ErrorMessage;
+                return PartnerLinkResult.Failure(tenant, "", tokenResult.ErrorType ?? "token_error", details);
             }
 
             // Remove the partner link using Azure Management API
-            var result = await RemovePartnerLinkAsync(tenant, accessToken);
+            var result = await RemovePartnerLinkAsync(tenant, tokenResult.AccessToken!);
             
             if (result.IsSuccess)
             {
@@ -255,16 +283,8 @@ public class PartnerLinkService : IPartnerLinkService
             // Azure Management API endpoint for creating partner links
             var requestUri = $"https://management.azure.com/providers/Microsoft.ManagementPartner/partners/{partnerId}?api-version=2018-02-01";
 
-            // Create the request payload
-            var payload = new
-            {
-                properties = new
-                {
-                    partnerId = partnerId
-                }
-            };
-
-            var jsonContent = JsonSerializer.Serialize(payload);
+            // Create the request payload manually to avoid AOT issues
+            var jsonContent = $"{{\"properties\":{{\"partnerId\":\"{partnerId}\"}}}}";
             var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
 
             // Make the PUT request to create the partner link
@@ -423,17 +443,61 @@ public class PartnerLinkService : IPartnerLinkService
             }
 
             var getContent = await getResponse.Content.ReadAsStringAsync();
+            _logger.LogDebug("GET partners response for unlinking: {Content}", getContent);
             
-            // Parse the response to get the partner ID (simplified parsing)
-            // In a real implementation, you'd properly parse the JSON
-            if (string.IsNullOrEmpty(getContent) || !getContent.Contains("partnerId"))
+            // Parse the response to get the partner ID
+            string? partnerId = null;
+            try
+            {
+                using var getJson = System.Text.Json.JsonDocument.Parse(getContent);
+                
+                // Parse the response to extract the existing Partner ID
+                if (getJson.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object)
+                {
+                    // Single partner response
+                    if (getJson.RootElement.TryGetProperty("properties", out var propsProp))
+                    {
+                        if (propsProp.TryGetProperty("partnerId", out var partnerIdProp))
+                        {
+                            partnerId = partnerIdProp.GetString();
+                        }
+                    }
+                    // Also check directly at root level
+                    if (string.IsNullOrEmpty(partnerId) && getJson.RootElement.TryGetProperty("partnerId", out var partnerIdPropRoot))
+                    {
+                        partnerId = partnerIdPropRoot.GetString();
+                    }
+                }
+                else if (getJson.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array && getJson.RootElement.GetArrayLength() > 0)
+                {
+                    // Array of partners response - take the first one
+                    var firstItem = getJson.RootElement[0];
+                    if (firstItem.TryGetProperty("properties", out var propsProp))
+                    {
+                        if (propsProp.TryGetProperty("partnerId", out var partnerIdProp))
+                        {
+                            partnerId = partnerIdProp.GetString();
+                        }
+                    }
+                    // Also check directly at item level
+                    if (string.IsNullOrEmpty(partnerId) && firstItem.TryGetProperty("partnerId", out var partnerIdPropItem))
+                    {
+                        partnerId = partnerIdPropItem.GetString();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error parsing GET partners response for tenant {TenantId}", tenant.Id);
+            }
+            
+            if (string.IsNullOrEmpty(partnerId))
             {
                 return PartnerLinkResult.Failure(tenant, "", 
-                    "No partner link found to remove", "Tenant does not have an existing partner link");
+                    "No partner link found to remove", "Tenant does not have an existing partner link or unable to parse partner ID from response");
             }
-
-            // For now, assume we can extract the partner ID
-            var partnerId = "existing-partner-id"; // Simplified
+            
+            _logger.LogInformation("Found existing Partner ID {PartnerId} to unlink from tenant {TenantId}", partnerId, tenant.Id);
 
             // Azure Management API endpoint for deleting partner links
             var deleteUri = $"https://management.azure.com/providers/Microsoft.ManagementPartner/partners/{partnerId}?api-version=2018-02-01";

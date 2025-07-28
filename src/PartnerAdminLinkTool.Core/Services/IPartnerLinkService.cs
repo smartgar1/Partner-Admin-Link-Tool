@@ -16,8 +16,9 @@ public interface IPartnerLinkService
     /// </summary>
     /// <param name="partnerId">The Microsoft AI Cloud Partner Program (Associated PartnerID) to link</param>
     /// <param name="tenant">The tenant to link the Partner ID to</param>
+    /// <param name="forceOverwrite">If true, will overwrite existing partner links. If false, will fail if a different partner ID is already linked.</param>
     /// <returns>Result of the link operation</returns>
-    Task<PartnerLinkResult> LinkPartnerIdAsync(string partnerId, Tenant tenant);
+    Task<PartnerLinkResult> LinkPartnerIdAsync(string partnerId, Tenant tenant, bool forceOverwrite = false);
 
     /// <summary>
     /// Link a Partner ID to multiple tenants
@@ -25,11 +26,13 @@ public interface IPartnerLinkService
     /// <param name="partnerId">The Microsoft AI Cloud Partner Program (Associated PartnerID) to link</param>
     /// <param name="tenants">The tenants to link the Partner ID to</param>
     /// <param name="progressCallback">Optional callback to report progress</param>
+    /// <param name="forceOverwrite">If true, will overwrite existing partner links. If false, will fail if a different partner ID is already linked.</param>
     /// <returns>Results of all link operations</returns>
     Task<List<PartnerLinkResult>> LinkPartnerIdToMultipleTenantsAsync(
         string partnerId, 
         List<Tenant> tenants, 
-        IProgress<(int completed, int total, Tenant currentTenant)>? progressCallback = null);
+        IProgress<(int completed, int total, Tenant currentTenant)>? progressCallback = null,
+        bool forceOverwrite = false);
 
     /// <summary>
     /// Remove a Partner ID link from a specific tenant

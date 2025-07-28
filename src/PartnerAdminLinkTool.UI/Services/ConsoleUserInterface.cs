@@ -20,6 +20,8 @@ namespace PartnerAdminLinkTool.UI.Services
         private readonly IPartnerLinkService _partnerLinkService;
         // No Graph API dependencies needed; all operations use Azure Management API
         private static List<(Tenant tenant, string previousPartnerId, string newPartnerId, PartnerLinkResult result)> _lastLinkingResults = new();
+        private bool _skipAllAuthenticationFailures = false;
+        private readonly SemaphoreSlim _authPromptSemaphore = new(1, 1);
 
         public ConsoleUserInterface(
             ILogger<ConsoleUserInterface> logger,
@@ -38,6 +40,10 @@ namespace PartnerAdminLinkTool.UI.Services
             try
             {
                 _logger.LogInformation("Starting console user interface");
+                
+                // Reset authentication failure skip flag at start of session
+                _skipAllAuthenticationFailures = false;
+                
                 await TrySignInSilentlyAsync();
                 bool continueRunning = true;
                 while (continueRunning)
@@ -236,6 +242,21 @@ namespace PartnerAdminLinkTool.UI.Services
                 return;
             }
 
+            // Ask about overwriting existing partner links
+            var forceOverwrite = AnsiConsole.Confirm(
+                "Do you want to overwrite existing partner links? " +
+                "[yellow](If 'No', tenants with different Partner IDs will be skipped)[/]", 
+                false);
+            
+            if (forceOverwrite)
+            {
+                AnsiConsole.MarkupLine("[yellow]⚠️  Overwrite mode enabled: Existing partner links will be replaced.[/]");
+            }
+            else
+            {
+                AnsiConsole.MarkupLine("[blue]ℹ️  Safe mode: Tenants with different Partner IDs will be skipped.[/]");
+            }
+
             // Discover tenants (after Partner ID input)
             var tenants = await _tenantDiscoveryService.DiscoverTenantsAsync(OnAuthenticationFailureWithTimeoutAsync);
             if (tenants.Count == 0)
@@ -264,56 +285,11 @@ namespace PartnerAdminLinkTool.UI.Services
                         string previousPartnerId = tenant.CurrentPartnerLink ?? string.Empty;
                         string newPartnerId = partnerId;
                         PartnerLinkResult result;
-                    // Always re-fetch current Partner ID before linking, with robust interactive fallback
-                    bool fetched = false;
-                    bool skippedTenant = false;
-                    int fetchAttempts = 0;
-                    while (!fetched && !skippedTenant && fetchAttempts < 3)
-                    {
-                        try
-                        {
-                            // Use the new method with authentication failure callback
-                            var (hasLink, partnerIdCurrent, skipped) = await _tenantDiscoveryService.CheckExistingPartnerLinkAsync(
-                                tenant.Id, 
-                                OnAuthenticationFailureAsync);
-                            
-                            if (skipped)
-                            {
-                                AnsiConsole.MarkupLine($"[yellow]Skipping tenant [cyan]{tenant.Id}[/] due to authentication issues[/]");
-                                skippedTenant = true;
-                                break; // Skip this tenant and continue with the next one
-                            }
-                            
-                            tenant.HasPartnerLink = hasLink;
-                            tenant.CurrentPartnerLink = partnerIdCurrent;
-                            previousPartnerId = partnerIdCurrent ?? string.Empty;
-                            fetched = true;
-                            AnsiConsole.MarkupLine($"[green]Current Partner ID for {tenant.Id}: {partnerIdCurrent ?? "None"}[/]");
-                        }
-                        catch (Exception ex)
-                        {
-                            // Set to Unknown but continue with linking attempt, which might extract the Partner ID from error messages
-                            previousPartnerId = "Unknown";
-                            tenant.HasPartnerLink = false;
-                            tenant.CurrentPartnerLink = null;
-                            AnsiConsole.MarkupLine($"[yellow]Warning: Could not fetch current Partner ID for tenant [cyan]{tenant.Id}[/] before linking: {ex.Message}[/]");
-                            break;
-                        }
-                        fetchAttempts++;
-                    }
+                    // Use partner link information already gathered during tenant discovery
+                    // This avoids authentication prompts during progress display which causes UI conflicts
+                    AnsiConsole.MarkupLine($"[green]Current Partner ID for {tenant.Id}: {tenant.CurrentPartnerLink ?? "None"}[/]");
 
-                    // Skip linking process if tenant was skipped due to authentication issues
-                    if (skippedTenant)
-                    {
-                        result = new PartnerLinkResult
-                        {
-                            Tenant = tenant,
-                            IsSuccess = false,
-                            Details = "Skipped due to authentication issues.",
-                            ErrorMessage = "Authentication failed and user chose to skip this tenant."
-                        };
-                    }
-                    else if (!string.IsNullOrEmpty(previousPartnerId) && previousPartnerId == partnerId)
+                    if (!string.IsNullOrEmpty(previousPartnerId) && previousPartnerId == partnerId)
                         {
                             result = new PartnerLinkResult
                             {
@@ -333,7 +309,7 @@ namespace PartnerAdminLinkTool.UI.Services
                                 try
                                 {
                                     var linkResults = await _partnerLinkService.LinkPartnerIdToMultipleTenantsAsync(
-                                        partnerId, new List<Tenant> { tenant }, null).ConfigureAwait(false);
+                                        partnerId, new List<Tenant> { tenant }, null, forceOverwrite).ConfigureAwait(false);
                                     result = linkResults != null && linkResults.Count > 0
                                         ? linkResults[0]
                                         : new PartnerLinkResult { Tenant = tenant, IsSuccess = false, ErrorMessage = "Unknown error" };
@@ -667,42 +643,45 @@ namespace PartnerAdminLinkTool.UI.Services
         /// <returns>True to skip the tenant, false to retry</returns>
         private async Task<bool> OnAuthenticationFailureAsync(string tenantId, string errorType, string errorMessage)
         {
-            await Task.CompletedTask; // Make this method async
-            
-            AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine($"[yellow]⚠️ Authentication Issue Detected[/]");
-            AnsiConsole.MarkupLine($"[cyan]Tenant ID:[/] {tenantId}");
-            AnsiConsole.MarkupLine($"[red]Error Type:[/] {errorType}");
-            AnsiConsole.MarkupLine($"[red]Details:[/] {errorMessage}");
-            
-            // Provide different messaging based on error type
-            var actionMessage = errorType.ToLowerInvariant() switch
+            // If user previously chose to skip all, return immediately
+            if (_skipAllAuthenticationFailures)
             {
-                "mfa_required" => "🔐 Multi-factor authentication (MFA) is required for this tenant.",
-                "consent_required" => "🛡️ Admin consent is required for this tenant.",
-                "basic_action" => "🔑 Additional authentication steps are required for this tenant.",
-                _ => "🔒 Authentication is required for this tenant."
-            };
+                return true;
+            }
             
-            AnsiConsole.MarkupLine($"[yellow]{actionMessage}[/]");
-            AnsiConsole.MarkupLine("[grey]This can happen during tenant discovery when checking for existing partner links.[/]");
-            AnsiConsole.WriteLine();
-            
-            var choice = AnsiConsole.Prompt(
-                new SelectionPrompt<string>()
-                    .Title($"What would you like to do for tenant [cyan]{tenantId}[/]?")
-                    .AddChoices(new[] {
-                        "Skip this tenant and continue",
-                        "Retry authentication for this tenant",
-                        "Skip all remaining authentication failures"
-                    }));
-            
-            return choice switch
+            // Use semaphore to prevent multiple authentication prompts at the same time
+            await _authPromptSemaphore.WaitAsync();
+            try
             {
-                "Skip this tenant and continue" => true,
-                "Skip all remaining authentication failures" => true, // TODO: Implement skip all logic
-                _ => false
-            };
+                // Check again after acquiring the lock in case another thread changed it
+                if (_skipAllAuthenticationFailures)
+                {
+                    return true;
+                }
+                
+                // Avoid interactive prompts during progress displays - they cause conflicts
+                // Instead, automatically default to skipping with a clear notification
+                AnsiConsole.WriteLine();
+                AnsiConsole.MarkupLine($"[yellow]⚠️ Authentication failure for tenant {tenantId}[/]");
+                AnsiConsole.MarkupLine($"[red]Error:[/] {errorType} - {errorMessage}");
+                AnsiConsole.MarkupLine("[yellow]📝 Note: Automatically skipping this tenant to avoid conflicts with progress display.[/]");
+                AnsiConsole.MarkupLine("[grey]   To handle authentication failures interactively, run tenant discovery separately.[/]");
+                AnsiConsole.WriteLine();
+                
+                // For now, always skip authentication failures during bulk operations
+                // This prevents the UI conflict while still allowing the operation to continue
+                return true;
+            }
+            catch (Exception ex)
+            {
+                AnsiConsole.MarkupLine($"[red]Error in authentication failure handler: {ex.Message}[/]");
+                AnsiConsole.MarkupLine("[yellow]Defaulting to skip this tenant.[/]");
+                return true; // Default to skip on error
+            }
+            finally
+            {
+                _authPromptSemaphore.Release();
+            }
         }
 
         /// <summary>
