@@ -83,7 +83,7 @@ jobs:
     - name: Create release package
       shell: bash
       run: |
-        # Copy the executable directly with the target-specific name
+        # Copy the executable directly with the target-specific name including version
         cp ./publish/${{ matrix.artifact_name }}/PartnerAdminLinkTool.UI.exe ./${{ matrix.asset_name }}
         
         # Verify the executable was created
@@ -93,7 +93,7 @@ jobs:
     - name: Upload build artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.artifact_name }}
+        name: ${{ matrix.artifact_name }}-v${{ steps.get_version.outputs.version }}
         path: ${{ matrix.asset_name }}
         retention-days: 30
 
