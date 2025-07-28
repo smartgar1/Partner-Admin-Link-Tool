@@ -69,6 +69,14 @@ public interface IAuthenticationService
     Task<TokenAcquisitionResult> GetAzureManagementAccessTokenAsync(string tenantId);
 
     /// <summary>
+    /// Get an access token for Azure Management API for a specific tenant with control over automatic interactive authentication.
+    /// </summary>
+    /// <param name="tenantId">Tenant ID to acquire token for</param>
+    /// <param name="allowInteractiveAuth">Whether to automatically attempt interactive authentication for MFA</param>
+    /// <returns>Result containing access token or actionable error info</returns>
+    Task<TokenAcquisitionResult> GetAzureManagementAccessTokenAsync(string tenantId, bool allowInteractiveAuth);
+
+    /// <summary>
     /// Perform interactive authentication for Azure Management API for a specific tenant
     /// </summary>
     /// <param name="tenantId">Tenant ID to acquire token for</param>

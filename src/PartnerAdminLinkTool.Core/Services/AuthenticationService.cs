@@ -34,6 +34,14 @@ namespace PartnerAdminLinkTool.Core.Services
         /// </summary>
         public async Task<TokenAcquisitionResult> GetAzureManagementAccessTokenAsync(string tenantId)
         {
+            return await GetAzureManagementAccessTokenAsync(tenantId, true);
+        }
+
+        /// <summary>
+        /// Get an access token for Azure Management API for a specific tenant with control over automatic interactive authentication.
+        /// </summary>
+        public async Task<TokenAcquisitionResult> GetAzureManagementAccessTokenAsync(string tenantId, bool allowInteractiveAuth)
+        {
             try
             {
                 if (_msalClient == null || !_currentState.IsAuthenticated)
@@ -67,21 +75,29 @@ namespace PartnerAdminLinkTool.Core.Services
                     }
                     else if (message.Contains("AADSTS50079") || message.Contains("AADSTS50076") || errorCode == "mfa_required" || message.Contains("multi-factor authentication"))
                     {
-                        _logger.LogWarning("MFA required for tenant {TenantId}. Attempting interactive authentication.", tenantId);
-                        // Automatically attempt interactive authentication for MFA
-                        try
+                        if (allowInteractiveAuth)
                         {
-                            var interactiveResult = await _msalClient.AcquireTokenInteractive(_azureScopes)
-                                .WithTenantId(tenantId)
-                                .WithPrompt(Prompt.SelectAccount)
-                                .ExecuteAsync();
-                            _logger.LogInformation("Interactive MFA authentication successful for tenant {TenantId}", tenantId);
-                            return await Task.FromResult(TokenAcquisitionResult.Success(interactiveResult.AccessToken));
+                            _logger.LogWarning("MFA required for tenant {TenantId}. Attempting interactive authentication.", tenantId);
+                            // Automatically attempt interactive authentication for MFA
+                            try
+                            {
+                                var interactiveResult = await _msalClient.AcquireTokenInteractive(_azureScopes)
+                                    .WithTenantId(tenantId)
+                                    .WithPrompt(Prompt.SelectAccount)
+                                    .ExecuteAsync();
+                                _logger.LogInformation("Interactive MFA authentication successful for tenant {TenantId}", tenantId);
+                                return await Task.FromResult(TokenAcquisitionResult.Success(interactiveResult.AccessToken));
+                            }
+                            catch (Exception interactiveEx)
+                            {
+                                _logger.LogError(interactiveEx, "Interactive MFA authentication failed for tenant {TenantId}", tenantId);
+                                return await Task.FromResult(TokenAcquisitionResult.Failure("mfa_required", $"MFA required for tenant {tenantId}. Interactive authentication failed: {interactiveEx.Message}"));
+                            }
                         }
-                        catch (Exception interactiveEx)
+                        else
                         {
-                            _logger.LogError(interactiveEx, "Interactive MFA authentication failed for tenant {TenantId}", tenantId);
-                            return await Task.FromResult(TokenAcquisitionResult.Failure("mfa_required", $"MFA required for tenant {tenantId}. Interactive authentication failed: {interactiveEx.Message}"));
+                            _logger.LogDebug("MFA required for tenant {TenantId}. Interactive authentication disabled - returning failure for user handling.", tenantId);
+                            return await Task.FromResult(TokenAcquisitionResult.Failure("mfa_required", $"MFA required for tenant {tenantId}."));
                         }
                     }
                     else if (message.Contains("AADSTS50158") || errorCode == "basic_action")
@@ -91,21 +107,29 @@ namespace PartnerAdminLinkTool.Core.Services
                     }
                     else
                     {
-                        _logger.LogWarning(uiEx, "Silent token acquisition failed for tenant {TenantId}. Attempting interactive authentication.", tenantId);
-                        // For any other UI required exception, attempt interactive authentication
-                        try
+                        if (allowInteractiveAuth)
                         {
-                            var interactiveResult = await _msalClient.AcquireTokenInteractive(_azureScopes)
-                                .WithTenantId(tenantId)
-                                .WithPrompt(Prompt.SelectAccount)
-                                .ExecuteAsync();
-                            _logger.LogInformation("Interactive authentication successful for tenant {TenantId}", tenantId);
-                            return await Task.FromResult(TokenAcquisitionResult.Success(interactiveResult.AccessToken));
+                            _logger.LogWarning(uiEx, "Silent token acquisition failed for tenant {TenantId}. Attempting interactive authentication.", tenantId);
+                            // For any other UI required exception, attempt interactive authentication
+                            try
+                            {
+                                var interactiveResult = await _msalClient.AcquireTokenInteractive(_azureScopes)
+                                    .WithTenantId(tenantId)
+                                    .WithPrompt(Prompt.SelectAccount)
+                                    .ExecuteAsync();
+                                _logger.LogInformation("Interactive authentication successful for tenant {TenantId}", tenantId);
+                                return await Task.FromResult(TokenAcquisitionResult.Success(interactiveResult.AccessToken));
+                            }
+                            catch (Exception interactiveEx)
+                            {
+                                _logger.LogError(interactiveEx, "Interactive authentication failed for tenant {TenantId}", tenantId);
+                                return await Task.FromResult(TokenAcquisitionResult.Failure("ui_required", $"Silent token acquisition failed for tenant {tenantId}: {uiEx.Message}. Interactive authentication also failed: {interactiveEx.Message}"));
+                            }
                         }
-                        catch (Exception interactiveEx)
+                        else
                         {
-                            _logger.LogError(interactiveEx, "Interactive authentication failed for tenant {TenantId}", tenantId);
-                            return await Task.FromResult(TokenAcquisitionResult.Failure("ui_required", $"Silent token acquisition failed for tenant {tenantId}: {uiEx.Message}. Interactive authentication also failed: {interactiveEx.Message}"));
+                            _logger.LogDebug("UI required for tenant {TenantId}. Interactive authentication disabled - returning failure for user handling.", tenantId);
+                            return await Task.FromResult(TokenAcquisitionResult.Failure("ui_required", $"Silent token acquisition failed for tenant {tenantId}: {uiEx.Message}"));
                         }
                     }
                 }
@@ -116,6 +140,7 @@ namespace PartnerAdminLinkTool.Core.Services
                 return await Task.FromResult(TokenAcquisitionResult.Failure("exception", $"Failed to get access token for tenant {tenantId}: {ex.Message}"));
             }
         }
+
         /// <summary>
         /// Get the admin consent URL for this application.
         /// </summary>

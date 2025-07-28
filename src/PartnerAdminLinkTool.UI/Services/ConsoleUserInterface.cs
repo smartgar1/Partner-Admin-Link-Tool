@@ -200,7 +200,7 @@ namespace PartnerAdminLinkTool.UI.Services
                 .Spinner(Spinner.Known.Dots)
                 .StartAsync("Discovering tenants...", async ctx =>
                 {
-                    tenants = await _tenantDiscoveryService.DiscoverTenantsAsync();
+                    tenants = await _tenantDiscoveryService.DiscoverTenantsAsync(OnAuthenticationFailureWithTimeoutAsync);
                 });
             if (tenants.Count == 0)
             {
@@ -237,7 +237,7 @@ namespace PartnerAdminLinkTool.UI.Services
             }
 
             // Discover tenants (after Partner ID input)
-            var tenants = await _tenantDiscoveryService.DiscoverTenantsAsync();
+            var tenants = await _tenantDiscoveryService.DiscoverTenantsAsync(OnAuthenticationFailureWithTimeoutAsync);
             if (tenants.Count == 0)
             {
                 AnsiConsole.MarkupLine("[yellow]No tenants found to link Partner ID to.[/]");
@@ -266,12 +266,24 @@ namespace PartnerAdminLinkTool.UI.Services
                         PartnerLinkResult result;
                     // Always re-fetch current Partner ID before linking, with robust interactive fallback
                     bool fetched = false;
+                    bool skippedTenant = false;
                     int fetchAttempts = 0;
-                    while (!fetched && fetchAttempts < 3)
+                    while (!fetched && !skippedTenant && fetchAttempts < 3)
                     {
                         try
                         {
-                            var (hasLink, partnerIdCurrent) = await _tenantDiscoveryService.CheckExistingPartnerLinkAsync(tenant.Id);
+                            // Use the new method with authentication failure callback
+                            var (hasLink, partnerIdCurrent, skipped) = await _tenantDiscoveryService.CheckExistingPartnerLinkAsync(
+                                tenant.Id, 
+                                OnAuthenticationFailureAsync);
+                            
+                            if (skipped)
+                            {
+                                AnsiConsole.MarkupLine($"[yellow]Skipping tenant [cyan]{tenant.Id}[/] due to authentication issues[/]");
+                                skippedTenant = true;
+                                break; // Skip this tenant and continue with the next one
+                            }
+                            
                             tenant.HasPartnerLink = hasLink;
                             tenant.CurrentPartnerLink = partnerIdCurrent;
                             previousPartnerId = partnerIdCurrent ?? string.Empty;
@@ -280,36 +292,28 @@ namespace PartnerAdminLinkTool.UI.Services
                         }
                         catch (Exception ex)
                         {
-                            if (ex.Message.Contains("consent_required") || ex.Message.Contains("mfa_required") || ex.Message.Contains("ui_required") || 
-                                ex.Message.Contains("AADSTS50076") || ex.Message.Contains("AADSTS50079") || ex is Microsoft.Identity.Client.MsalUiRequiredException)
-                            {
-                                AnsiConsole.MarkupLine($"[yellow]Additional authentication required for tenant [cyan]{tenant.Id}[/]. Attempting MFA authentication...[/]");
-                                if (!(_authenticationService is PartnerAdminLinkTool.Core.Services.AuthenticationService concreteAuthService))
-                                    throw new InvalidOperationException("AuthenticationService must be of type PartnerAdminLinkTool.Core.Services.AuthenticationService");
-                                
-                                // Use the new MFA handling method
-                                var tokenResult = await concreteAuthService.HandleMfaRequiredAsync(tenant.Id, $"MFA required for tenant {tenant.Id}");
-                                if (tokenResult == null || !tokenResult.IsSuccess)
-                                {
-                                    AnsiConsole.MarkupLine($"[red]MFA authentication failed for tenant [cyan]{tenant.Id}[/]: {tokenResult?.ErrorMessage ?? "Unknown error"}[/]");
-                                    break;
-                                }
-                                AnsiConsole.MarkupLine($"[green]MFA authentication successful for tenant [cyan]{tenant.Id}[/][/]");
-                                fetchAttempts++;
-                            }
-                            else
-                            {
-                                // Set to Unknown but continue with linking attempt, which might extract the Partner ID from error messages
-                                previousPartnerId = "Unknown";
-                                tenant.HasPartnerLink = false;
-                                tenant.CurrentPartnerLink = null;
-                                AnsiConsole.MarkupLine($"[yellow]Warning: Could not fetch current Partner ID for tenant [cyan]{tenant.Id}[/] before linking: {ex.Message}[/]");
-                                break;
-                            }
+                            // Set to Unknown but continue with linking attempt, which might extract the Partner ID from error messages
+                            previousPartnerId = "Unknown";
+                            tenant.HasPartnerLink = false;
+                            tenant.CurrentPartnerLink = null;
+                            AnsiConsole.MarkupLine($"[yellow]Warning: Could not fetch current Partner ID for tenant [cyan]{tenant.Id}[/] before linking: {ex.Message}[/]");
+                            break;
                         }
+                        fetchAttempts++;
                     }
 
-                        if (!string.IsNullOrEmpty(previousPartnerId) && previousPartnerId == partnerId)
+                    // Skip linking process if tenant was skipped due to authentication issues
+                    if (skippedTenant)
+                    {
+                        result = new PartnerLinkResult
+                        {
+                            Tenant = tenant,
+                            IsSuccess = false,
+                            Details = "Skipped due to authentication issues.",
+                            ErrorMessage = "Authentication failed and user chose to skip this tenant."
+                        };
+                    }
+                    else if (!string.IsNullOrEmpty(previousPartnerId) && previousPartnerId == partnerId)
                         {
                             result = new PartnerLinkResult
                             {
@@ -597,7 +601,7 @@ namespace PartnerAdminLinkTool.UI.Services
                 .Spinner(Spinner.Known.Dots)
                 .StartAsync("Discovering tenants and fetching PAL status...", async ctx =>
                 {
-                    tenants = await _tenantDiscoveryService.DiscoverTenantsAsync();
+                    tenants = await _tenantDiscoveryService.DiscoverTenantsAsync(OnAuthenticationFailureWithTimeoutAsync);
                     
                     // Fetch current partner links for each tenant
                     foreach (var tenant in tenants)
@@ -652,6 +656,108 @@ namespace PartnerAdminLinkTool.UI.Services
                     await _authenticationService.SignOutAsync();
                 });
             AnsiConsole.MarkupLine("[green]✓ Signed out successfully[/]");
+        }
+
+        /// <summary>
+        /// Callback method to handle authentication failures during tenant discovery
+        /// </summary>
+        /// <param name="tenantId">The tenant ID that failed authentication</param>
+        /// <param name="errorType">The type of authentication error</param>
+        /// <param name="errorMessage">The detailed error message</param>
+        /// <returns>True to skip the tenant, false to retry</returns>
+        private async Task<bool> OnAuthenticationFailureAsync(string tenantId, string errorType, string errorMessage)
+        {
+            await Task.CompletedTask; // Make this method async
+            
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine($"[yellow]⚠️ Authentication Issue Detected[/]");
+            AnsiConsole.MarkupLine($"[cyan]Tenant ID:[/] {tenantId}");
+            AnsiConsole.MarkupLine($"[red]Error Type:[/] {errorType}");
+            AnsiConsole.MarkupLine($"[red]Details:[/] {errorMessage}");
+            
+            // Provide different messaging based on error type
+            var actionMessage = errorType.ToLowerInvariant() switch
+            {
+                "mfa_required" => "🔐 Multi-factor authentication (MFA) is required for this tenant.",
+                "consent_required" => "🛡️ Admin consent is required for this tenant.",
+                "basic_action" => "🔑 Additional authentication steps are required for this tenant.",
+                _ => "🔒 Authentication is required for this tenant."
+            };
+            
+            AnsiConsole.MarkupLine($"[yellow]{actionMessage}[/]");
+            AnsiConsole.MarkupLine("[grey]This can happen during tenant discovery when checking for existing partner links.[/]");
+            AnsiConsole.WriteLine();
+            
+            var choice = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title($"What would you like to do for tenant [cyan]{tenantId}[/]?")
+                    .AddChoices(new[] {
+                        "Skip this tenant and continue",
+                        "Retry authentication for this tenant",
+                        "Skip all remaining authentication failures"
+                    }));
+            
+            return choice switch
+            {
+                "Skip this tenant and continue" => true,
+                "Skip all remaining authentication failures" => true, // TODO: Implement skip all logic
+                _ => false
+            };
+        }
+
+        /// <summary>
+        /// Wrapper to convert timeout callback to authentication failure callback format
+        /// </summary>
+        private async Task<bool> OnAuthenticationFailureWithTimeoutAsync(string tenantId, string errorType, string errorMessage)
+        {
+            // If it's a timeout, use the timeout callback
+            if (errorType == "timeout")
+            {
+                return await OnAuthenticationTimeoutAsync(tenantId);
+            }
+            
+            // Otherwise, use the regular authentication failure callback
+            return await OnAuthenticationFailureAsync(tenantId, errorType, errorMessage);
+        }
+
+        /// <summary>
+        /// Callback method to handle authentication timeouts during tenant discovery
+        /// </summary>
+        /// <param name="tenantId">The tenant ID that is taking time to authenticate</param>
+        /// <returns>True to skip the tenant, false to continue waiting</returns>
+        private async Task<bool> OnAuthenticationTimeoutAsync(string tenantId)
+        {
+            await Task.CompletedTask; // Make this method async
+            
+            AnsiConsole.WriteLine();
+            AnsiConsole.MarkupLine($"[yellow]⏱️ Authentication In Progress[/]");
+            AnsiConsole.MarkupLine($"[cyan]Tenant ID:[/] {tenantId}");
+            AnsiConsole.MarkupLine($"[yellow]Authentication is taking longer than expected (5+ seconds)[/]");
+            AnsiConsole.MarkupLine("[grey]This usually means MFA (Multi-Factor Authentication) is required.[/]");
+            AnsiConsole.MarkupLine("[grey]You might have a browser window or authentication prompt waiting for your attention.[/]");
+            AnsiConsole.WriteLine();
+            
+            var choice = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title($"What would you like to do for tenant [cyan]{tenantId}[/]?")
+                    .AddChoices(new[] {
+                        "Continue waiting (check for auth prompts)",
+                        "Skip this tenant and continue with others"
+                    }));
+            
+            bool shouldSkip = choice == "Skip this tenant and continue with others";
+            
+            if (shouldSkip)
+            {
+                AnsiConsole.MarkupLine($"[yellow]⏭️ Skipping tenant [cyan]{tenantId}[/][/]");
+            }
+            else
+            {
+                AnsiConsole.MarkupLine($"[green]⏳ Continuing to wait for authentication for tenant [cyan]{tenantId}[/][/]");
+                AnsiConsole.MarkupLine("[dim]Check for browser windows, mobile notifications, or other authentication prompts...[/]");
+            }
+            
+            return shouldSkip;
         }
 
         private static void ShowAboutPAL()
